@@ -217,7 +217,7 @@ func parsePurgeArgs(args []string) (purgeConfig, error) {
 func printRootUsage(out io.Writer) {
 	fmt.Fprintln(out, "Usage: mcp-admin.go <command> [options]")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Admin utilities for MCP API key create/get operations.")
+	fmt.Fprintln(out, "Admin utilities for MCP API key create/get/purge operations.")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Commands:")
 	fmt.Fprintln(out, "  create      Issue or rotate an API key for a username.")

@@ -26,6 +26,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import tempfile
 
 # Lightweight netID-style username validation.
 USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
@@ -461,17 +462,25 @@ def run_purge(args: argparse.Namespace) -> int:
 
         filtered_lines.append(raw_line)
 
-    temp_path = db_path.with_suffix(f"{db_path.suffix}.tmp")
+    temp_path = None
     try:
-        with temp_path.open("w", encoding="utf-8") as handle:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            dir=db_path.parent,
+        ) as handle:
+            temp_path = Path(handle.name)
             for line in filtered_lines:
                 handle.write(line)
                 handle.write("\n")
-        temp_path.replace(db_path)
+        if temp_path is not None:
+            temp_path.replace(db_path)
     except OSError as exc:
         print(f"Error: failed to write datastore: {exc}", file=sys.stderr)
         try:
-            temp_path.unlink(missing_ok=True)
+            if temp_path is not None:
+                temp_path.unlink(missing_ok=True)
         except OSError:
             pass
         return 1

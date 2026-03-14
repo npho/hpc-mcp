@@ -416,6 +416,10 @@ def run_purge(args: argparse.Namespace) -> int:
 
     print(f"Total rotated keys removable: {total_removable}")
 
+    if total_removable == 0:
+        print("Nothing to purge; exiting without modifying datastore.")
+        return 0
+
     try:
         response = input("Proceed with purge? [Y/N]: ").strip().lower()
     except EOFError:

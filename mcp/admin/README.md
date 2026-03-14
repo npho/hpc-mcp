@@ -14,7 +14,7 @@ The admin script provides command-specific subcommands:
 - `create` for key issuance/rotation
 - `get` for active-key lookup
 
-### What it does?
+### What it does
 
 - Creates an API key for a provided netID username.
 - Stores records in an append-only JSONL datastore at

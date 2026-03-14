@@ -783,6 +783,27 @@ func runPurge(config purgeConfig, stdout io.Writer, stderr io.Writer) int {
 		filteredLines = append(filteredLines, entry.RawLine)
 	}
 
+	// Acquire an advisory lock to prevent concurrent writers during purge.
+	lockPath := dbPath + ".lock"
+	for {
+		lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			if os.IsExist(err) {
+				// Another process holds the lock; wait and retry.
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			fmt.Fprintf(stderr, "Error: failed to acquire purge lock: %v\n", err)
+			return 1
+		}
+		// Ensure the lock is released when purge completes.
+		defer func() {
+			lockFile.Close()
+			_ = os.Remove(lockPath)
+		}()
+		break
+	}
+
 	if err := rewriteEntries(dbPath, filteredLines); err != nil {
 		fmt.Fprintf(stderr, "Error: failed to write datastore: %v\n", err)
 		return 1

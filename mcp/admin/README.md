@@ -13,16 +13,17 @@ The admin script provides command-specific subcommands:
 
 - `create` for key issuance/rotation
 - `get` for active-key lookup
+- `purge` for cleaning stale rotated keys
 
 ### What it does
 
 - Creates an API key for a provided netID username.
 - Stores records in an append-only JSONL datastore at
-	`api_keys.jsonl` by default.
+  `api_keys.jsonl` by default.
 - Records only three fields per issuance event:
-	- `username`
-	- `created_at`
-	- `api_key`
+  - `username`
+  - `created_at`
+  - `api_key`
 - Preserves historical keys for the same username (no deletions) upon rotation.
 
 Active-key convention:
@@ -39,14 +40,15 @@ The Python and Go CLIs share the same subcommands and datastore format.
 
 ```bash
 $ python3 mcp-admin.py -h
-usage: mcp-admin.py [-h] {create,get} ...
+usage: mcp-admin.py [-h] {create,get,purge} ...
 
-Admin utilities for MCP API key create/get operations.
+Admin utilities for MCP API key create/get/purge operations.
 
 positional arguments:
-  {create,get}
+  {create,get,purge}
     create      Issue or rotate an API key for a username.
     get         Get active key metadata (latest row) for one or all users.
+    purge       Purge stale rotated keys while keeping active keys.
 
 options:
   -h, --help    show this help message and exit
@@ -160,6 +162,39 @@ Use a custom datastore path:
 python3 mcp-admin.py get --db-file /path/to/api_keys.jsonl
 ./mcp-admin get --db-file /path/to/api_keys.jsonl
 ```
+
+## Purge stale rotated keys
+
+The `purge` subcommand scans the datastore for users that have multiple key
+records, reports how many stale rotated keys can be removed per user, and then
+asks for interactive confirmation before writing changes.
+
+Only stale records are removed. The latest active key for each purged user is
+kept.
+
+By default, purge scans all users:
+
+```bash
+python3 mcp-admin.py purge
+./mcp-admin purge
+```
+
+Limit purge scope to one or more usernames:
+
+```bash
+python3 mcp-admin.py purge npho alice
+./mcp-admin purge npho alice
+```
+
+Use a custom datastore path:
+
+```bash
+python3 mcp-admin.py purge --db-file /path/to/api_keys.jsonl
+./mcp-admin purge --db-file /path/to/api_keys.jsonl
+```
+
+Interactive confirmation accepts `Y` or `N` (case-insensitive). Any response
+other than `Y` cancels the purge.
 
 ### Notes on defaults
 

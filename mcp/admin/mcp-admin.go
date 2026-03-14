@@ -67,6 +67,18 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 			return 1
 		}
 		return runGet(config, stdout, stderr)
+	case "purge":
+		config, err := parsePurgeArgs(args[1:])
+		if err != nil {
+			if errors.Is(err, errHelpRequested) {
+				printPurgeUsage(stdout)
+				return 0
+			}
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			printPurgeUsage(stderr)
+			return 1
+		}
+		return runPurge(config, stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "Error: unknown command %q\n", command)
 		printRootUsage(stderr)
@@ -86,6 +98,16 @@ type getConfig struct {
 	HasUser  bool
 	ShowKey  bool
 	DBFile   string
+}
+
+type purgeConfig struct {
+	Usernames []string
+	DBFile    string
+}
+
+type dbEntry struct {
+	RawLine string
+	Record  *apiKeyRecord
 }
 
 var errHelpRequested = errors.New("help requested")
@@ -163,14 +185,44 @@ func parseGetArgs(args []string) (getConfig, error) {
 	return config, nil
 }
 
+func parsePurgeArgs(args []string) (purgeConfig, error) {
+	config := purgeConfig{DBFile: defaultDBPath()}
+
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch arg {
+		case "-h", "--help":
+			return purgeConfig{}, errHelpRequested
+		case "--db-file":
+			index++
+			if index >= len(args) {
+				return purgeConfig{}, errors.New("missing value for --db-file")
+			}
+			config.DBFile = args[index]
+		default:
+			if strings.HasPrefix(arg, "--db-file=") {
+				config.DBFile = strings.TrimPrefix(arg, "--db-file=")
+				continue
+			}
+			if strings.HasPrefix(arg, "-") {
+				return purgeConfig{}, fmt.Errorf("unknown flag %s", arg)
+			}
+			config.Usernames = append(config.Usernames, arg)
+		}
+	}
+
+	return config, nil
+}
+
 func printRootUsage(out io.Writer) {
 	fmt.Fprintln(out, "Usage: mcp-admin.go <command> [options]")
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Admin utilities for MCP API key create/get operations.")
+	fmt.Fprintln(out, "Admin utilities for MCP API key create/get/purge operations.")
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Commands:")
 	fmt.Fprintln(out, "  create      Issue or rotate an API key for a username.")
 	fmt.Fprintln(out, "  get         Get active key metadata (latest row) for one or all users.")
+	fmt.Fprintln(out, "  purge       Purge stale rotated keys while keeping active keys.")
 }
 
 func printCreateUsage(out io.Writer) {
@@ -179,6 +231,10 @@ func printCreateUsage(out io.Writer) {
 
 func printGetUsage(out io.Writer) {
 	fmt.Fprintln(out, "Usage: mcp-admin.go get [--db-file PATH] [--show-key] [username]")
+}
+
+func printPurgeUsage(out io.Writer) {
+	fmt.Fprintln(out, "Usage: mcp-admin.go purge [--db-file PATH] [username ...]")
 }
 
 func defaultDBPath() string {
@@ -396,6 +452,69 @@ func loadActiveRecords(dbPath string, stderr io.Writer) (map[string]apiKeyRecord
 	return active, nil
 }
 
+func loadDBEntries(dbPath string, stderr io.Writer) ([]dbEntry, error) {
+	entries := make([]dbEntry, 0)
+
+	file, err := os.Open(dbPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return entries, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for lineNumber := 1; scanner.Scan(); lineNumber++ {
+		rawLine := scanner.Text()
+		trimmed := strings.TrimSpace(rawLine)
+		if trimmed == "" {
+			entries = append(entries, dbEntry{RawLine: rawLine})
+			continue
+		}
+
+		record, err := parseRecord(trimmed, dbPath, lineNumber, stderr)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, dbEntry{RawLine: rawLine, Record: record})
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
+}
+
+func rewriteEntries(dbPath string, lines []string) error {
+	tmpFile, err := os.CreateTemp(filepath.Dir(dbPath), "api_keys.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+
+	for _, line := range lines {
+		if _, err := tmpFile.WriteString(line + "\n"); err != nil {
+			tmpFile.Close()
+			_ = os.Remove(tmpPath)
+			return err
+		}
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := os.Rename(tmpPath, dbPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	return nil
+}
+
 func formatGetOutput(record apiKeyRecord, showKey bool) (string, error) {
 	type outputRecord struct {
 		Username  string `json:"username"`
@@ -534,5 +653,163 @@ func runGet(config getConfig, stdout io.Writer, stderr io.Writer) int {
 		fmt.Fprintln(stdout, formatted)
 	}
 
+	return 0
+}
+
+func runPurge(config purgeConfig, stdout io.Writer, stderr io.Writer) int {
+	dbPath, err := resolveDBPath(config.DBFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: failed to resolve datastore: %v\n", err)
+		return 1
+	}
+
+	for _, username := range config.Usernames {
+		if err := validateUsername(username); err != nil {
+			fmt.Fprintf(stderr, "Error: %v\n", err)
+			return 1
+		}
+	}
+
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintf(stderr, "Error: datastore not found at %s\n", dbPath)
+			return 1
+		}
+		fmt.Fprintf(stderr, "Error: failed to read datastore: %v\n", err)
+		return 1
+	}
+
+	entries, err := loadDBEntries(dbPath, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "Error: failed to read datastore: %v\n", err)
+		return 1
+	}
+
+	counts := make(map[string]int)
+	for _, entry := range entries {
+		if entry.Record == nil {
+			continue
+		}
+		counts[entry.Record.Username]++
+	}
+
+	targets := make(map[string]bool)
+	if len(config.Usernames) > 0 {
+		for _, username := range config.Usernames {
+			targets[username] = true
+		}
+	} else {
+		for username := range counts {
+			targets[username] = true
+		}
+	}
+
+	rotatedUsers := make([]string, 0)
+	totalRemovable := 0
+	for username := range targets {
+		if counts[username] > 1 {
+			rotatedUsers = append(rotatedUsers, username)
+			totalRemovable += counts[username] - 1
+		}
+	}
+	sort.Strings(rotatedUsers)
+
+	if len(rotatedUsers) == 0 {
+		fmt.Fprintln(stdout, "No rotated keys found for purge scope.")
+	} else {
+		fmt.Fprintln(stdout, "Users with rotated keys eligible for purge:")
+		for _, username := range rotatedUsers {
+			fmt.Fprintf(stdout, "- %s: %d rotated keys can be removed\n", username, counts[username]-1)
+		}
+	}
+	fmt.Fprintf(stdout, "Total rotated keys removable: %d\n", totalRemovable)
+
+	if totalRemovable == 0 {
+		fmt.Fprintln(stdout, "Nothing to purge. Exiting without changes.")
+		return 0
+	}
+
+	fmt.Fprint(stdout, "Proceed with purge? [Y/N]: ")
+	reader := bufio.NewReader(os.Stdin)
+	response, readErr := reader.ReadString('\n')
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		fmt.Fprintf(stderr, "Error: failed to read confirmation: %v\n", readErr)
+		return 1
+	}
+
+	if strings.ToLower(strings.TrimSpace(response)) != "y" {
+		fmt.Fprintln(stdout, "Purge cancelled.")
+		return 0
+	}
+
+	keepIndex := make(map[string]int)
+	keepCreatedAt := make(map[string]time.Time)
+	for index, entry := range entries {
+		if entry.Record == nil {
+			continue
+		}
+		username := entry.Record.Username
+		if !targets[username] || counts[username] <= 1 {
+			continue
+		}
+
+		createdAt, err := parseCreatedAt(entry.Record.CreatedAt)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error: failed to parse timestamp during purge: %v\n", err)
+			return 1
+		}
+
+		current, exists := keepCreatedAt[username]
+		if !exists || createdAt.After(current) {
+			keepCreatedAt[username] = createdAt
+			keepIndex[username] = index
+		}
+	}
+
+	filteredLines := make([]string, 0, len(entries))
+	removed := 0
+	for index, entry := range entries {
+		if entry.Record == nil {
+			filteredLines = append(filteredLines, entry.RawLine)
+			continue
+		}
+
+		username := entry.Record.Username
+		if targets[username] && counts[username] > 1 && keepIndex[username] != index {
+			removed++
+			continue
+		}
+
+		filteredLines = append(filteredLines, entry.RawLine)
+	}
+
+	// Acquire an advisory lock to prevent concurrent writers during purge.
+	lockPath := dbPath + ".lock"
+	for {
+		lockFile, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			if os.IsExist(err) {
+				// Another process holds the lock; wait and retry.
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			fmt.Fprintf(stderr, "Error: failed to acquire purge lock: %v\n", err)
+			return 1
+		}
+		// Ensure the lock is released when purge completes.
+		defer func() {
+			lockFile.Close()
+			_ = os.Remove(lockPath)
+		}()
+		break
+	}
+
+	if err := rewriteEntries(dbPath, filteredLines); err != nil {
+		fmt.Fprintf(stderr, "Error: failed to write datastore: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "Purged rotated keys: %d\n", removed)
+	fmt.Fprintf(stdout, "db_file: %s\n", dbPath)
 	return 0
 }

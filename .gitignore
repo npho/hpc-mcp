@@ -10,6 +10,6 @@ wheels/
 *.egg-info
 .venv
 
-# Local API key datastore (contains secrets)
+# Dev artifacts
 *.jsonl
-
+mcp-admin

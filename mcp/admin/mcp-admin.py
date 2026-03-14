@@ -5,6 +5,7 @@ This utility merges key issuance/rotation and active-key lookup into a single
 entrypoint with subcommands:
 - create: issue or rotate a key for a username
 - get: read active key metadata (latest record per username)
+- purge: remove stale rotated keys while keeping active records
 
 Datastore characteristics:
 - Local JSONL flat file for operational simplicity
@@ -97,6 +98,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include raw active API key in output (default is redacted).",
     )
     get_parser.add_argument(
+        "--db-file",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help=f"Path to JSONL datastore (default: {DEFAULT_DB_PATH}).",
+    )
+
+    purge_parser = subparsers.add_parser(
+        "purge",
+        help="Purge stale rotated keys while keeping active keys.",
+    )
+    purge_parser.add_argument(
+        "usernames",
+        nargs="*",
+        help="Optional netID usernames to purge. Omit to scan all users.",
+    )
+    purge_parser.add_argument(
         "--db-file",
         type=Path,
         default=DEFAULT_DB_PATH,
@@ -250,6 +267,26 @@ def load_active_records(db_path: Path) -> dict[str, ApiKeyRecord]:
     return active
 
 
+def load_db_entries(db_path: Path) -> list[tuple[str, ApiKeyRecord | None]]:
+    """Load datastore rows preserving raw line content and parsed records."""
+
+    entries: list[tuple[str, ApiKeyRecord | None]] = []
+    if not db_path.exists():
+        return entries
+
+    with db_path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            raw_line = line.rstrip("\n")
+            stripped = raw_line.strip()
+            if not stripped:
+                entries.append((raw_line, None))
+                continue
+
+            entries.append((raw_line, parse_record(stripped, db_path, line_number)))
+
+    return entries
+
+
 def format_get_output(record: ApiKeyRecord, show_key: bool) -> str:
     """Format stable JSON output for get command."""
 
@@ -330,6 +367,116 @@ def run_get(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_purge(args: argparse.Namespace) -> int:
+    """Handle purge subcommand lifecycle."""
+
+    db_path = resolve_db_path(args.db_file)
+
+    try:
+        for username in args.usernames:
+            validate_username(username)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    if not db_path.exists():
+        print(f"Error: datastore not found at {db_path}", file=sys.stderr)
+        return 1
+
+    try:
+        entries = load_db_entries(db_path)
+    except OSError as exc:
+        print(f"Error: failed to read datastore: {exc}", file=sys.stderr)
+        return 1
+
+    counts: dict[str, int] = {}
+    for _, record in entries:
+        if record is None:
+            continue
+        counts[record.username] = counts.get(record.username, 0) + 1
+
+    if args.usernames:
+        target_users = set(args.usernames)
+    else:
+        target_users = set(counts)
+
+    rotated_users = sorted(
+        username for username in target_users if counts.get(username, 0) > 1
+    )
+    total_removable = 0
+
+    if rotated_users:
+        print("Users with rotated keys eligible for purge:")
+        for username in rotated_users:
+            removable = counts[username] - 1
+            total_removable += removable
+            print(f"- {username}: {removable} rotated keys can be removed")
+    else:
+        print("No rotated keys found for purge scope.")
+
+    print(f"Total rotated keys removable: {total_removable}")
+
+    try:
+        response = input("Proceed with purge? [Y/N]: ").strip().lower()
+    except EOFError:
+        response = "n"
+    if response != "y":
+        print("Purge cancelled.")
+        return 0
+
+    keep_index: dict[str, int] = {}
+    keep_created_at: dict[str, datetime] = {}
+    for index, (_, record) in enumerate(entries):
+        if record is None:
+            continue
+        if record.username not in target_users:
+            continue
+        if counts.get(record.username, 0) <= 1:
+            continue
+
+        record_time = parse_created_at(record.created_at)
+        current = keep_created_at.get(record.username)
+        if current is None or record_time > current:
+            keep_created_at[record.username] = record_time
+            keep_index[record.username] = index
+
+    filtered_lines: list[str] = []
+    removed = 0
+    for index, (raw_line, record) in enumerate(entries):
+        if record is None:
+            filtered_lines.append(raw_line)
+            continue
+
+        if (
+            record.username in target_users
+            and counts.get(record.username, 0) > 1
+            and keep_index.get(record.username) != index
+        ):
+            removed += 1
+            continue
+
+        filtered_lines.append(raw_line)
+
+    temp_path = db_path.with_suffix(f"{db_path.suffix}.tmp")
+    try:
+        with temp_path.open("w", encoding="utf-8") as handle:
+            for line in filtered_lines:
+                handle.write(line)
+                handle.write("\n")
+        temp_path.replace(db_path)
+    except OSError as exc:
+        print(f"Error: failed to write datastore: {exc}", file=sys.stderr)
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return 1
+
+    print(f"Purged rotated keys: {removed}")
+    print(f"db_file: {db_path}")
+    return 0
+
+
 def main() -> int:
     """CLI entrypoint."""
 
@@ -340,6 +487,8 @@ def main() -> int:
         return run_create(args)
     if args.command == "get":
         return run_get(args)
+    if args.command == "purge":
+        return run_purge(args)
 
     parser.print_help()
     return 1

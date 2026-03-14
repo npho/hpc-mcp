@@ -1,0 +1,118 @@
+Bootstrap: docker
+From: rockylinux:9-minimal
+
+%labels
+    Maintainer "hpc-mcp"
+    Application "ollama"
+
+%post
+    set -eux
+
+    microdnf -y update
+    microdnf -y install bash python3 python3-pip curl ca-certificates findutils shadow-utils tar gzip procps-ng
+    microdnf clean all
+
+    # Install uv and expose it on PATH.
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    ln -sf /root/.local/bin/uv /usr/local/bin/uv
+
+    mkdir -p /opt/open-webui /var/lib/open-webui /var/lib/ollama
+
+    # Create venv and install Open WebUI using uv pip workflow.
+    uv venv /opt/open-webui/.venv
+    uv pip install --python /opt/open-webui/.venv/bin/python open-webui
+
+    # Install Ollama so the container can serve models locally.
+    curl -fsSL https://ollama.com/install.sh | sh
+
+    cat >/usr/local/bin/start-ollama-open-webui <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p "${OPEN_WEBUI_DATA_DIR:-/var/lib/open-webui}" "${OLLAMA_MODELS:-/var/lib/ollama/models}"
+
+OLLAMA_BACKEND_PORT="${OLLAMA_BACKEND_PORT:-11434}"
+export OLLAMA_BACKEND_PORT
+export OLLAMA_HOST="${OLLAMA_HOST:-127.0.0.1:${OLLAMA_BACKEND_PORT}}"
+export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:${OLLAMA_BACKEND_PORT}}"
+export OLLAMA_API_BASE_URL="${OLLAMA_API_BASE_URL:-${OLLAMA_BASE_URL}/api}"
+export OPEN_WEBUI_OLLAMA_BASE_URL="${OPEN_WEBUI_OLLAMA_BASE_URL:-${OLLAMA_BASE_URL}}"
+
+# Use Open WebUI native auth and disable open signup for shared hosts.
+export WEBUI_AUTH="${WEBUI_AUTH:-True}"
+export ENABLE_LOGIN_FORM="${ENABLE_LOGIN_FORM:-True}"
+export ENABLE_PASSWORD_AUTH="${ENABLE_PASSWORD_AUTH:-True}"
+export ENABLE_SIGNUP="${ENABLE_SIGNUP:-False}"
+
+# If OOD passes a session password, use it to bootstrap admin login.
+if [ -n "${WEBUI_ADMIN_PASSWORD:-}" ]; then
+    export WEBUI_ADMIN_EMAIL="${WEBUI_ADMIN_EMAIL:-${USER:-ood}@localhost}"
+    export WEBUI_ADMIN_NAME="${WEBUI_ADMIN_NAME:-${USER:-OOD User}}"
+fi
+
+ollama serve >/tmp/ollama.log 2>&1 &
+ollama_pid=$!
+
+cleanup() {
+    if kill -0 "${ollama_pid}" 2>/dev/null; then
+        kill "${ollama_pid}"
+        wait "${ollama_pid}" || true
+    fi
+}
+
+trap cleanup EXIT INT TERM
+
+wait_for_ollama() {
+    local timeout="${OLLAMA_READY_TIMEOUT:-30}"
+    local interval=1
+    local start_ts
+    local now_ts
+    local elapsed
+    local base_url="${OLLAMA_BASE_URL:-http://127.0.0.1:${OLLAMA_BACKEND_PORT:-11434}}"
+
+    start_ts=$(date +%s)
+    echo "Waiting for Ollama to become ready at ${base_url} (timeout: ${timeout}s)..." >&2
+
+    while true; do
+        if curl -sf "${base_url}/api/tags" >/dev/null 2>&1; then
+            echo "Ollama is ready." >&2
+            break
+        fi
+
+        now_ts=$(date +%s)
+        elapsed=$((now_ts - start_ts))
+
+        if [ "${elapsed}" -ge "${timeout}" ]; then
+            echo "Timed out (${timeout}s) waiting for Ollama to become ready; continuing startup." >&2
+            break
+        fi
+
+        sleep "${interval}"
+    done
+}
+
+wait_for_ollama
+
+exec open-webui serve --host "${OPEN_WEBUI_HOST:-0.0.0.0}" --port "${OPEN_WEBUI_PORT:-8080}"
+EOF
+    chmod +x /usr/local/bin/start-ollama-open-webui
+
+%environment
+    export PATH=/opt/open-webui/.venv/bin:/usr/local/bin:$PATH
+    export OPEN_WEBUI_HOST=${OPEN_WEBUI_HOST:-0.0.0.0}
+    export OPEN_WEBUI_PORT=${OPEN_WEBUI_PORT:-8080}
+    export OPEN_WEBUI_DATA_DIR=${OPEN_WEBUI_DATA_DIR:-/var/lib/open-webui}
+    export DATA_DIR=${DATA_DIR:-$OPEN_WEBUI_DATA_DIR}
+    export OLLAMA_BACKEND_PORT=${OLLAMA_BACKEND_PORT:-11434}
+    export OLLAMA_HOST=${OLLAMA_HOST:-127.0.0.1:${OLLAMA_BACKEND_PORT}}
+    export OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://127.0.0.1:${OLLAMA_BACKEND_PORT}}
+    export OLLAMA_API_BASE_URL=${OLLAMA_API_BASE_URL:-${OLLAMA_BASE_URL}/api}
+    export OPEN_WEBUI_OLLAMA_BASE_URL=${OPEN_WEBUI_OLLAMA_BASE_URL:-${OLLAMA_BASE_URL}}
+    export OLLAMA_MODELS=${OLLAMA_MODELS:-/var/lib/ollama/models}
+    export WEBUI_AUTH=${WEBUI_AUTH:-True}
+    export ENABLE_LOGIN_FORM=${ENABLE_LOGIN_FORM:-True}
+    export ENABLE_PASSWORD_AUTH=${ENABLE_PASSWORD_AUTH:-True}
+    export ENABLE_SIGNUP=${ENABLE_SIGNUP:-False}
+
+%runscript
+    exec /usr/local/bin/start-ollama-open-webui

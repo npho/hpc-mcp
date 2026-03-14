@@ -1,0 +1,66 @@
+<div class="ood-appkit">
+  <h3>Ollama + Open WebUI Session</h3>
+
+  <p>
+    <a class="btn btn-primary" target="_blank" rel="noopener noreferrer" href="/node/<%= host %>/<%= port %>/">
+      Open WebUI
+    </a>
+  </p>
+
+  <hr>
+
+  <p><strong>Session login password:</strong></p>
+  <div style="display:flex; gap:8px; align-items:center;">
+    <input id="session-password" type="text" readonly value="<%= password %>" style="width:360px; max-width:100%;" />
+    <button class="btn btn-default" onclick="copySessionPassword()">Copy</button>
+  </div>
+
+  <p style="margin-top:10px;">
+    Use username/email <strong><%= ENV['USER'] %>@localhost</strong> and the password above.
+  </p>
+</div>
+
+<script>
+  function fallbackCopySessionPassword(el) {
+    // Legacy fallback using document.execCommand for older browsers
+    if (!el) {
+      return;
+    }
+
+    const originalReadOnly = el.readOnly;
+    const originalType = el.type;
+
+    try {
+      // Ensure the field is selectable
+      el.readOnly = false;
+      el.type = 'text';
+
+      el.select();
+      el.setSelectionRange(0, el.value.length);
+      document.execCommand('copy');
+    } finally {
+      // Restore original state
+      el.setSelectionRange(0, 0);
+      el.blur();
+      el.readOnly = originalReadOnly;
+      el.type = originalType;
+    }
+  }
+
+  function copySessionPassword() {
+    const el = document.getElementById('session-password');
+    if (!el) {
+      return;
+    }
+
+    const password = el.value;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(password).catch(function () {
+        fallbackCopySessionPassword(el);
+      });
+    } else {
+      fallbackCopySessionPassword(el);
+    }
+  }
+</script>

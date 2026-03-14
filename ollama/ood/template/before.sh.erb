@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Open OnDemand user-facing app port.
+export port="$(find_port)"
+
+# Random local Ollama backend port for this session.
+ollama_backend_port="$(find_port localhost 20000 65000)"
+while [ "${ollama_backend_port}" = "${port}" ]; do
+  ollama_backend_port="$(find_port localhost 20000 65000)"
+done
+export OLLAMA_BACKEND_PORT="${ollama_backend_port}"
+
+# Session password shown in connection view and used for Open WebUI login.
+password="$(create_passwd 20)"
+export password
+
+export WEBUI_ADMIN_PASSWORD="${password}"
+export WEBUI_ADMIN_EMAIL="${USER}@localhost"
+export WEBUI_ADMIN_NAME="${USER}"
+export WEBUI_SECRET_KEY="$(create_passwd 48)"

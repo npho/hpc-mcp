@@ -335,10 +335,7 @@ func appendRecord(dbPath string, record apiKeyRecord) error {
 		return err
 	}
 
-	if _, err := file.Write(encoded); err != nil {
-		return err
-	}
-	if _, err := file.Write([]byte("\n")); err != nil {
+	if _, err := file.Write(append(encoded, '\n')); err != nil {
 		return err
 	}
 

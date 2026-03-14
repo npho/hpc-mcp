@@ -42,7 +42,7 @@ The Python and Go CLIs share the same subcommands and datastore format.
 $ python3 mcp-admin.py -h
 usage: mcp-admin.py [-h] {create,get,purge} ...
 
-Admin utilities for MCP API key create/get operations.
+Admin utilities for MCP API key create/get/purge operations.
 
 positional arguments:
 	{create,get,purge}

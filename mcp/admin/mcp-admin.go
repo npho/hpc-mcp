@@ -724,6 +724,11 @@ func runPurge(config purgeConfig, stdout io.Writer, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Total rotated keys removable: %d\n", totalRemovable)
 
+	if totalRemovable == 0 {
+		fmt.Fprintln(stdout, "Nothing to purge. Exiting without changes.")
+		return 0
+	}
+
 	fmt.Fprint(stdout, "Proceed with purge? [Y/N]: ")
 	reader := bufio.NewReader(os.Stdin)
 	response, readErr := reader.ReadString('\n')

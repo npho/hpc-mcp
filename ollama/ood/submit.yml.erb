@@ -1,0 +1,17 @@
+---
+batch_connect:
+  template: "basic"
+
+script:
+  wall_time: "<%= (context.bc_num_hours.to_i * 3600) %>"
+  native:
+    - "--nodes=1"
+    - "--ntasks=1"
+    - "--cpus-per-task=<%= context.num_cores %>"
+    - "--mem=<%= context.memory_gb %>G"
+<% if context.partition.to_s.strip != "" %>
+    - "--partition=<%= context.partition %>"
+<% end %>
+<% if context.account.to_s.strip != "" %>
+    - "--account=<%= context.account %>"
+<% end %>

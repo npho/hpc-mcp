@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SESSION_OLLAMA_DIR="<%= context.ollama_data_dir %>/<%= session.id %>"
+SESSION_WEBUI_DIR="<%= context.webui_data_dir %>/<%= session.id %>"
+mkdir -p "${SESSION_OLLAMA_DIR}" "${SESSION_WEBUI_DIR}"
+
+export OPEN_WEBUI_HOST="0.0.0.0"
+export OPEN_WEBUI_PORT="<%= port %>"
+export OPEN_WEBUI_DATA_DIR="/var/lib/open-webui"
+export DATA_DIR="/var/lib/open-webui"
+export OLLAMA_BACKEND_PORT="${OLLAMA_BACKEND_PORT}"
+export OLLAMA_HOST="127.0.0.1:${OLLAMA_BACKEND_PORT}"
+export OLLAMA_BASE_URL="http://127.0.0.1:${OLLAMA_BACKEND_PORT}"
+export OLLAMA_API_BASE_URL="${OLLAMA_BASE_URL}/api"
+export OPEN_WEBUI_OLLAMA_BASE_URL="${OLLAMA_BASE_URL}"
+export OLLAMA_MODELS="/var/lib/ollama/models"
+export WEBUI_AUTH="True"
+export ENABLE_LOGIN_FORM="True"
+export ENABLE_PASSWORD_AUTH="True"
+export ENABLE_SIGNUP="False"
+export WEBUI_ADMIN_PASSWORD="${WEBUI_ADMIN_PASSWORD}"
+export WEBUI_ADMIN_EMAIL="${WEBUI_ADMIN_EMAIL}"
+export WEBUI_ADMIN_NAME="${WEBUI_ADMIN_NAME}"
+export WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY}"
+
+apptainer run \
+  --cleanenv \
+  --bind "${SESSION_OLLAMA_DIR}:/var/lib/ollama" \
+  --bind "${SESSION_WEBUI_DIR}:/var/lib/open-webui" \
+  --env OPEN_WEBUI_HOST="${OPEN_WEBUI_HOST}" \
+  --env OPEN_WEBUI_PORT="${OPEN_WEBUI_PORT}" \
+  --env OPEN_WEBUI_DATA_DIR="${OPEN_WEBUI_DATA_DIR}" \
+  --env DATA_DIR="${DATA_DIR}" \
+  --env OLLAMA_BACKEND_PORT="${OLLAMA_BACKEND_PORT}" \
+  --env OLLAMA_HOST="${OLLAMA_HOST}" \
+  --env OLLAMA_BASE_URL="${OLLAMA_BASE_URL}" \
+  --env OLLAMA_API_BASE_URL="${OLLAMA_API_BASE_URL}" \
+  --env OPEN_WEBUI_OLLAMA_BASE_URL="${OPEN_WEBUI_OLLAMA_BASE_URL}" \
+  --env OLLAMA_MODELS="${OLLAMA_MODELS}" \
+  --env WEBUI_AUTH="${WEBUI_AUTH}" \
+  --env ENABLE_LOGIN_FORM="${ENABLE_LOGIN_FORM}" \
+  --env ENABLE_PASSWORD_AUTH="${ENABLE_PASSWORD_AUTH}" \
+  --env ENABLE_SIGNUP="${ENABLE_SIGNUP}" \
+  --env WEBUI_ADMIN_PASSWORD="${WEBUI_ADMIN_PASSWORD}" \
+  --env WEBUI_ADMIN_EMAIL="${WEBUI_ADMIN_EMAIL}" \
+  --env WEBUI_ADMIN_NAME="${WEBUI_ADMIN_NAME}" \
+  --env WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY}" \
+  "<%= context.image_path %>"

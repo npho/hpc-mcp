@@ -1,0 +1,57 @@
+---
+cluster: "your_cluster_name"
+
+attributes:
+  image_path:
+    widget: text_field
+    label: "Ollama SIF path"
+    value: "/path/to/ollama.sif"
+    help: "Absolute path to the Apptainer image."
+  partition:
+    widget: text_field
+    label: "Slurm partition"
+    value: ""
+    help: "Optional Slurm partition to submit the job to."
+  account:
+    widget: text_field
+    label: "Slurm account"
+    value: ""
+    help: "Optional Slurm account to charge for the job."
+  ollama_data_dir:
+    widget: text_field
+    label: "Persistent Ollama data directory"
+    value: "$HOME/.local/share/ollama/models"
+    help: "Host directory bind-mounted to /var/lib/ollama for model storage."
+  webui_data_dir:
+    widget: text_field
+    label: "Persistent Open WebUI data directory"
+    value: "$HOME/.local/share/ollama/open-webui"
+    help: "Host directory bind-mounted to /var/lib/open-webui."
+  bc_num_hours:
+    widget: number_field
+    label: "Wall time (hours)"
+    value: 4
+    min: 1
+    max: 48
+  num_cores:
+    widget: number_field
+    label: "CPU cores"
+    value: 2
+    min: 1
+    max: 16
+  memory_gb:
+    widget: number_field
+    label: "Memory (GB)"
+    value: 8
+    min: 1
+    max: 256
+
+form:
+  - image_path
+  - partition
+  - account
+  - ollama_data_dir
+  - webui_data_dir
+  - bc_num_hours
+  - num_cores
+  - memory_gb

@@ -1,0 +1,6 @@
+---
+name: "Ollama"
+category: "Interactive Apps"
+subcategory: "AI"
+role: batch_connect
+description: "Run Ollama with Open WebUI in Apptainer with persistent model and UI data."

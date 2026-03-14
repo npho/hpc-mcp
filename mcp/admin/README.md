@@ -19,11 +19,11 @@ The admin script provides command-specific subcommands:
 
 - Creates an API key for a provided netID username.
 - Stores records in an append-only JSONL datastore at
-	`api_keys.jsonl` by default.
+  `api_keys.jsonl` by default.
 - Records only three fields per issuance event:
-	- `username`
-	- `created_at`
-	- `api_key`
+  - `username`
+  - `created_at`
+  - `api_key`
 - Preserves historical keys for the same username (no deletions) upon rotation.
 
 Active-key convention:
@@ -45,10 +45,10 @@ usage: mcp-admin.py [-h] {create,get,purge} ...
 Admin utilities for MCP API key create/get/purge operations.
 
 positional arguments:
-	{create,get,purge}
+  {create,get,purge}
     create      Issue or rotate an API key for a username.
     get         Get active key metadata (latest row) for one or all users.
-		purge       Purge stale rotated keys while keeping active keys.
+    purge       Purge stale rotated keys while keeping active keys.
 
 options:
   -h, --help    show this help message and exit

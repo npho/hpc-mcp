@@ -21,10 +21,46 @@
 </div>
 
 <script>
+  function fallbackCopySessionPassword(el) {
+    // Legacy fallback using document.execCommand for older browsers
+    if (!el) {
+      return;
+    }
+
+    const originalReadOnly = el.readOnly;
+    const originalType = el.type;
+
+    try {
+      // Ensure the field is selectable
+      el.readOnly = false;
+      el.type = 'text';
+
+      el.select();
+      el.setSelectionRange(0, el.value.length);
+      document.execCommand('copy');
+    } finally {
+      // Restore original state
+      el.setSelectionRange(0, 0);
+      el.blur();
+      el.readOnly = originalReadOnly;
+      el.type = originalType;
+    }
+  }
+
   function copySessionPassword() {
     const el = document.getElementById('session-password');
-    el.select();
-    el.setSelectionRange(0, 99999);
-    document.execCommand('copy');
+    if (!el) {
+      return;
+    }
+
+    const password = el.value;
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(password).catch(function () {
+        fallbackCopySessionPassword(el);
+      });
+    } else {
+      fallbackCopySessionPassword(el);
+    }
   }
 </script>
